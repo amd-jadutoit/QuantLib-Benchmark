@@ -65,7 +65,14 @@
 #include <chrono>
 #include <thread>
 
-#include <papi.h>
+/* initialize PAPI on Linux
+  sudo sysctl -w kernel.perf_event_paranoid=0
+  export PAPI_EVENTS="PAPI_TOT_INS,PAPI_FP_OPS,PAPI_FP_INS"
+  export PAPI_REPORT=1
+*/
+
+
+// #include <papi.h>
 
 /* Use BOOST_MSVC instead of _MSC_VER since some other vendors (Metrowerks,
    for example) also #define _MSC_VER
@@ -76,35 +83,42 @@
 
 #include "utilities.hpp"
 #include "americanoption.hpp"
-#include "asianoptions.hpp"
-#include "barrieroption.hpp"
-#include "basketoption.hpp"
+#include "andreasenhugevolatilityinterpl.hpp"
 #include "batesmodel.hpp"
+#include "bermudanswaption.hpp"
+#include "cdo.hpp"
+#include "cmsspread.hpp"
 #include "convertiblebonds.hpp"
-#include "digitaloption.hpp"
-#include "dividendoption.hpp"
+#include "creditdefaultswap.hpp"
 #include "europeanoption.hpp"
 #include "fdheston.hpp"
+#include "fdmlinearop.hpp"
 #include "hestonmodel.hpp"
-#include "interpolations.hpp"
-#include "jumpdiffusion.hpp"
+#include "hestonslvmodel.hpp"
+#include "linearleastsquaresregression.hpp"
+#include "lowdiscrepancysequences.hpp"
 #include "marketmodel_smm.hpp"
 #include "marketmodel_cms.hpp"
-#include "lowdiscrepancysequences.hpp"
-#include "quantooption.hpp"
+#include "markovfunctional.hpp"
+#include "mclongstaffschwartzengine.hpp"
+#include "overnightindexedswap.hpp"
+#include "piecewiseyieldcurve.hpp"
 #include "riskstats.hpp"
 #include "shortratemodels.hpp"
-
+#include "swaptionvolatilitycube.hpp"
+#include "swingoption.hpp"
+#include "variancegamma.hpp"
+#include "vpp.hpp"
+#include "zabr.hpp"
 
 namespace {
 
     class Benchmark {
       public:
-        typedef void (*fct_ptr)();
-        Benchmark(std::string name, fct_ptr f, double mflop)
-        : f_(f), name_(std::move(name)), mflop_(mflop) {}
+        Benchmark(std::string name, std::function<void(void)> f, double mflop)
+        : f_(std::move(f)), name_(std::move(name)), mflop_(mflop) {}
 
-        fct_ptr getTestCase() const {
+        std::function<void(void)> getTestCase() const {
             return f_;
         }
         double getMflop() const {
@@ -119,53 +133,73 @@ namespace {
             std::swap(mflop_, other.mflop_);
         }
       private:
-        fct_ptr f_;
+        std::function<void(void)> f_;
         std::string name_;
         double mflop_; // total number of mega floating
                        // point operations (not per sec!)
     };
 
     std::vector<Benchmark> bm = {
-        Benchmark("AmericanOption::FdAmericanGreeks", &AmericanOptionTest::testFdAmericanGreeks, 518.31),
-        Benchmark("AsianOption::MCArithmeticAveragePrice", &AsianOptionTest::testMCDiscreteArithmeticAveragePrice, 5186.13),
-        Benchmark("BarrierOption::BabsiriValues", &BarrierOptionTest::testBabsiriValues, 880.8),
-        Benchmark("BasketOption::EuroTwoValues", &BasketOptionTest::testEuroTwoValues, 340.04),
-        Benchmark("BasketOption::TavellaValues", &BasketOptionTest::testTavellaValues, 933.80),
-        Benchmark("BasketOption::OddSamples", &BasketOptionTest::testOddSamples, 642.46),
-        Benchmark("BatesModel::DAXCalibration", &BatesModelTest::testDAXCalibration, 1993.35),
-        Benchmark("ConvertibleBondTest::testBond", &ConvertibleBondTest::testBond, 159.85),
-        Benchmark("DigitalOption::MCCashAtHit", &DigitalOptionTest::testMCCashAtHit, 995.87),
-        Benchmark("DividendOption::FdEuropeanGreeks", &DividendOptionTest::testFdEuropeanGreeks, 949.52),
-        Benchmark("DividendOption::FdAmericanGreeks", &DividendOptionTest::testFdAmericanGreeks, 1113.74),
-        Benchmark("EuropeanOption::FdMcEngines", &EuropeanOptionTest::testMcEngines, 1988.63),
-        Benchmark("EuropeanOption::ImpliedVol", &EuropeanOptionTest::testImpliedVol, 131.51),
-        Benchmark("EuropeanOption::FdEngines", &EuropeanOptionTest::testFdEngines, 148.43),
-        Benchmark("FdHestonTest::testFdmHestonAmerican", &FdHestonTest::testFdmHestonAmerican, 234.21),
-        Benchmark("HestonModel::DAXCalibration", &HestonModelTest::testDAXCalibration, 555.19),
-        Benchmark("InterpolationTest::testSabrInterpolation", &InterpolationTest::testSabrInterpolation, 2266.06),
-        Benchmark("JumpDiffusion::Greeks", &JumpDiffusionTest::testGreeks, 433.77),
-        Benchmark("MarketModelCmsTest::testCmSwapsSwaptions", &MarketModelCmsTest::testMultiStepCmSwapsAndSwaptions, 11497.73),
-        Benchmark("MarketModelSmmTest::testMultiSmmSwaptions", &MarketModelSmmTest::testMultiStepCoterminalSwapsAndSwaptions, 11244.95),
-        Benchmark("QuantoOption::ForwardGreeks", &QuantoOptionTest::testForwardGreeks, 90.98),
-        Benchmark("RandomNumber::MersenneTwisterDescrepancy", &LowDiscrepancyTest::testMersenneTwisterDiscrepancy, 951.98),
-        Benchmark("RiskStatistics::Results", &RiskStatisticsTest::testResults, 300.28),
-        Benchmark("ShortRateModel::Swaps", &ShortRateModelTest::testSwaps, 454.73)
+        // Equity & FX
+        Benchmark("BatesModel::DAXCalibration", &BatesModelTest::testDAXCalibration, 1163.36),
+        Benchmark("HestonModel::DAXCalibration", &HestonModelTest::testDAXCalibration, 852.86),
+        Benchmark("FdHestonTest::testFdmHestonAmerican", &FdHestonTest::testFdmHestonAmerican, 183.52),
+        Benchmark("AmericanOption::FdAmericanGreeks", &AmericanOptionTest::testFdAmericanGreeks, 774.82),
+        Benchmark("EuropeanOption::ImpliedVol", &EuropeanOptionTest::testImpliedVol, 91.69),
+        Benchmark("HestonSLVModelTest::testMonteCarloCalibration", &HestonSLVModelTest::testMonteCarloCalibration, 2395.90),
+        Benchmark("HestonSLVModelTest::testBarrierPricingViaHestonLocalVol", &HestonSLVModelTest::testBarrierPricingViaHestonLocalVol, 734.21),
+        Benchmark("MCLongstaffSchwartzEngineTest::testAmericanOption", &MCLongstaffSchwartzEngineTest::testAmericanOption, 1540.91),
+        Benchmark("VarianceGammaTest::testVarianceGamma", &VarianceGammaTest::testVarianceGamma, 69.25),
+        Benchmark("ConvertibleBondTest::testBond", &ConvertibleBondTest::testBond, 83.19),
+        Benchmark("AndreasenHugeVolatilityInterplTest::testArbitrageFree", &AndreasenHugeVolatilityInterplTest::testArbitrageFree, 672.74),
+
+        // Interest Rates
+        Benchmark("ShortRateModel::Swaps", &ShortRateModelTest::testSwaps, 75.51),
+        Benchmark("MarketModelCmsTest::testCmSwapsSwaptions", &MarketModelCmsTest::testMultiStepCmSwapsAndSwaptions, 10016.22),
+        Benchmark("MarketModelSmmTest::testMultiSmmSwaptions", &MarketModelSmmTest::testMultiStepCoterminalSwapsAndSwaptions, 9332.63),
+        Benchmark("BermudanSwaptionTest::testCachedG2Values", &BermudanSwaptionTest::testCachedG2Values, 2189.44),
+        Benchmark("PiecewiseYieldCurveTest::testConvexMonotoneForwardConsistency",
+            []() { for (int i=0; i < 10; ++i) PiecewiseYieldCurveTest::testConvexMonotoneForwardConsistency(); }, 229.33),
+        Benchmark("testBootstrapWithArithmeticAverage",
+            []() { for (int i=0; i < 10; ++i) OvernightIndexedSwapTest::testBootstrapWithArithmeticAverage(); }, 1084.21),
+        Benchmark("MarkovFunctionalTest::testCalibrationTwoInstrumentSets", &MarkovFunctionalTest::testCalibrationTwoInstrumentSets, 1743.69),
+        Benchmark("ShortRateModelTest::testCachedHullWhite2",
+            []() { for (int i=0; i < 100; ++i) ShortRateModelTest::testCachedHullWhite2(); }, 220.91),
+        Benchmark("SwaptionVolatilityCubeTest::testSpreadedCube",
+            []() { for (int i=0; i < 10; ++i) SwaptionVolatilityCubeTest::testSpreadedCube(); }, 336.87),
+        Benchmark("ZabrTest::testConsistency", &ZabrTest::testConsistency, 11913.76),
+        Benchmark("CmsSpreadTest::testCouponPricing", &CmsSpreadTest::testCouponPricing, 1184.0),
+
+        // Credit Derivatives
+        Benchmark("CdoTest::testHW(0)", [](){ CdoTest::testHW(1); }, 807.54),
+        Benchmark("CreditDefaultSwapTest::testImpliedHazardRate",
+            []() { for (int i=0; i < 1000; ++i) CreditDefaultSwapTest::testImpliedHazardRate();}, 227.2),
+
+        // Energy
+        Benchmark("SwingOptionTest::testExtOUJumpSwingOption", &SwingOptionTest::testExtOUJumpSwingOption, 4329.34),
+        Benchmark("VPPTest::testVPPPricing", &VPPTest::testVPPPricing, 3994.80),
+
+       // Math
+        Benchmark("RiskStatistics::Results", &RiskStatisticsTest::testResults, 208.13),
+        Benchmark("RandomNumber::MersenneTwisterDescrepancy", &LowDiscrepancyTest::testMersenneTwisterDiscrepancy, 487.65),
+        Benchmark("FdmLinearOpTest::testFdmMesherIntegral",
+            []() { for (int i=0; i < 100; ++i) FdmLinearOpTest::testFdmMesherIntegral(); }, 4.2),
+        Benchmark("LinearLeastSquaresRegressionTest::testMultiDimRegression", &LinearLeastSquaresRegressionTest::testMultiDimRegression, 81.78)
     };
 
     class TimedBenchmark {
       public:
-        typedef void (*fct_ptr)();
-        explicit TimedBenchmark(fct_ptr f, const std::string& name)
-        : f_(f), name_(name) {}
+        TimedBenchmark(std::function<void(void)> f, const std::string& name)
+        : f_(std::move(f)), name_(name) {}
 
         void startMeasurement() const {
-            QL_REQUIRE(PAPI_hl_region_begin(name_.c_str()) == PAPI_OK,
-                "could not initialize PAPI");
+//            QL_REQUIRE(PAPI_hl_region_begin(name_.c_str()) == PAPI_OK,
+//                "could not initialize PAPI");
         }
 
         void stopMeasurement() const {
-            QL_REQUIRE(PAPI_hl_region_end(name_.c_str()) == PAPI_OK,
-                "could not stop PAPI");
+//            QL_REQUIRE(PAPI_hl_region_end(name_.c_str()) == PAPI_OK,
+//                "could not stop PAPI");
         }
 
         double operator()() const {
@@ -179,7 +213,7 @@ namespace {
                  stopTime - startTime).count() * 1e-6;
         }
       private:
-        fct_ptr f_;
+        std::function<void(void)> f_;
         const std::string name_;
     };
 
@@ -189,9 +223,9 @@ namespace {
 
         const std::string header = "Benchmark Suite QuantLib "  QL_VERSION;
 
-        std::cout << std::endl << std::string(58,'-') << std::endl;
+        std::cout << std::endl << std::string(78,'-') << std::endl;
         std::cout << header << std::endl;
-        std::cout << std::string(58,'-') << std::endl << std::endl;
+        std::cout << std::string(78,'-') << std::endl << std::endl;
 
         std::sort(runTimes.begin(), runTimes.end(),
             [](const auto& a, const auto& b) {
@@ -219,15 +253,15 @@ namespace {
                     * nProc * std::get<1>(iterT);
 
             std::cout << std::get<0>(iterT).getName()
-                      << std::string(42-std::get<0>(iterT).getName().length(),' ')
+                      << std::string(62-std::get<0>(iterT).getName().length(),' ')
                       << ":" << std::fixed << std::setw(8) << std::setprecision(1)
                       << mflopsPerSec
                       << " mflops" << std::endl;
 
             sum+=mflopsPerSec;
         }
-        std::cout << std::string(58,'-') << std::endl
-                  << "QuantLib Benchmark Index                  :"
+        std::cout << std::string(78,'-') << std::endl
+                  << "QuantLib Benchmark Index" << std::string(38,' ') << ":"
                   << std::fixed << std::setw(8) << std::setprecision(1)
                   << sum/aggTimes.size()
                   << " mflops" << std::endl;

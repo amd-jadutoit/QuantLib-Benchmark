@@ -350,27 +350,34 @@ set(QL_BENCHMARK_SOURCES
     quantlibbenchmark.cpp
     
     americanoption.cpp                  americanoption.hpp
-    asianoptions.cpp                    asianoptions.hpp
-    barrieroption.cpp                   barrieroption.hpp
-    basketoption.cpp                    basketoption.hpp
+    andreasenhugevolatilityinterpl.cpp  andreasenhugevolatilityinterpl.hpp
     batesmodel.cpp                      batesmodel.hpp
+    bermudanswaption.cpp                bermudanswaption.hpp
+    cdo.cpp                             cdo.hpp
+    cmsspread.cpp                       cmsspread.hpp
     convertiblebonds.cpp                convertiblebonds.hpp
-    digitaloption.cpp                   digitaloption.hpp
-    dividendoption.cpp                  dividendoption.hpp
+    creditdefaultswap.cpp               creditdefaultswap.hpp
     europeanoption.cpp                  europeanoption.hpp
     fdheston.cpp                        fdheston.hpp
+    fdmlinearop.cpp                     fdmlinearop.hpp
     hestonmodel.cpp                     hestonmodel.hpp
-    interpolations.cpp                  interpolations.hpp
-    jumpdiffusion.cpp                   jumpdiffusion.hpp
+    hestonslvmodel.cpp                  hestonslvmodel.hpp
+    linearleastsquaresregression.cpp   linearleastsquaresregression.hpp
     lowdiscrepancysequences.cpp         lowdiscrepancysequences.hpp
     marketmodel_cms.cpp                 marketmodel_cms.hpp
     marketmodel_smm.cpp                 marketmodel_smm.hpp
-    quantooption.cpp                    quantooption.hpp
+    markovfunctional.cpp                markovfunctional.hpp
+    mclongstaffschwartzengine.cpp       mclongstaffschwartzengine.hpp
+    overnightindexedswap.cpp            overnightindexedswap.hpp
+    piecewiseyieldcurve.cpp             piecewiseyieldcurve.hpp
     riskstats.cpp                       riskstats.hpp
     shortratemodels.cpp                 shortratemodels.hpp
-
+    swaptionvolatilitycube.cpp          swaptionvolatilitycube.hpp
+    swingoption.cpp                     swingoption.cpp
     utilities.cpp                       utilities.hpp
-                                        swaptionvolstructuresutilities.hpp
+    variancegamma.cpp                   variancegamma.hpp
+    vpp.cpp                             vpp.hpp
+    zabr.cpp                            zabr.hpp
 )
 
 if (QL_BUILD_TEST_SUITE OR QL_BUILD_BENCHMARK)
