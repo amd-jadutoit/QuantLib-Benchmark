@@ -349,48 +349,65 @@ QL_TESTS = ${QL_TEST_SRCS} ${QL_TEST_HDRS}
 QL_BENCHMARK_SRCS = \
 	quantlibbenchmark.cpp \
 	americanoption.cpp \
-	asianoptions.cpp \
-	barrieroption.cpp \
-	doublebarrieroption.cpp \
-	basketoption.cpp \
+	andreasenhugevolatilityinterpl.cpp \
 	batesmodel.cpp \
+	bermudanswaption.cpp \
+	cdo.cpp \
+	cmsspread.cpp \
 	convertiblebonds.cpp \
-	digitaloption.cpp \
-	dividendoption.cpp \
+	creditdefaultswap.cpp \
 	europeanoption.cpp \
 	fdheston.cpp \
+	fdmlinearop.cpp \
 	hestonmodel.cpp \
-	interpolations.cpp \
-	jumpdiffusion.cpp \
+	hestonslvmodel.cpp \
+	linearleastsquaresregression.cpp \
 	lowdiscrepancysequences.cpp \
 	marketmodel_cms.cpp \
 	marketmodel_smm.cpp \
-	quantooption.cpp \
+	markovfunctional.cpp \
+	mclongstaffschwartzengine.cpp \
+	overnightindexedswap.cpp \
+	piecewiseyieldcurve.cpp \
 	riskstats.cpp \
 	shortratemodels.cpp \
-	utilities.cpp
+	swaptionvolatilitycube.cpp \
+	swingoption.cpp \
+	utilities.cpp \
+	variancegamma.cpp \
+	vpp.cpp \
+	zabr.cpp
 
 QL_BENCHMARK_HDRS = \
 	americanoption.hpp \
-	asianoptions.hpp \
-	barrieroption.hpp \
-	doublebarrieroption.hpp \
-	basketoption.hpp \
+	andreasenhugevolatilityinterpl.hpp \
 	batesmodel.hpp \
+	bermudanswaption.hpp \
+	cdo.hpp \
+	cmsspread.hpp \
 	convertiblebonds.hpp \
-	digitaloption.hpp \
-	dividendoption.hpp \
+	creditdefaultswap.hpp \
 	europeanoption.hpp \
 	fdheston.hpp \
+	fdmlinearop.hpp \
 	hestonmodel.hpp \
-	interpolations.hpp \
-	jumpdiffusion.hpp \
+	hestonslvmodel.hpp \
+	linearleastsquaresregression.hpp \
 	lowdiscrepancysequences.hpp \
 	marketmodel_cms.hpp \
 	marketmodel_smm.hpp \
-	quantooption.hpp \
+	markovfunctional.hpp \
+	mclongstaffschwartzengine.hpp \
+	overnightindexedswap.hpp \
+	piecewiseyieldcurve.hpp \
 	riskstats.hpp \
 	shortratemodels.hpp \
+	swaptionvolatilitycube.hpp \
+	swingoption.hpp \
+	utilities.hpp \
+	variancegamma.hpp \
+	vpp.hpp \
+	zabr.hpp \
 	utilities.hpp
 
 QL_BENCHMARKS = ${QL_BENCHMARK_SRCS} ${QL_BENCHMARK_HDRS}
