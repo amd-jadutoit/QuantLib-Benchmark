@@ -66,7 +66,13 @@ using QuantLib::value;
 // This makes it easier to use array literals (for new code, use std::vector though)
 #define LENGTH(a) (sizeof(a)/sizeof(a[0]))
 
-#define QUANTLIB_TEST_CASE(f) BOOST_TEST_CASE(QuantLib::detail::quantlib_test_case(f))
+#define QUANTLIB_TEST_CASE(f) BOOST_TEST_CASE(QuantLib::detail::quantlib_test_case(f,#f))
+
+#ifdef QL_PRINT_TEST_SUITE_RUNTIMES
+#include <chrono>
+#include <iostream>
+#include <string>
+#endif
 
 namespace QuantLib {
 
@@ -75,16 +81,27 @@ namespace QuantLib {
         // used to avoid no-assertion messages in Boost 1.35
         class quantlib_test_case {
             ext::function<void()> test_;
+            std::string name_;
           public:
             template <class F>
-            explicit quantlib_test_case(F test) : test_(test) {}
+            explicit quantlib_test_case(F test, std::string name="") : test_(test), name_(name) {}
             void operator()() const {
                 // Restore settings after each test.
                 SavedSettings restore;
                 // Clear all fixings before running a test to avoid interference.
                 IndexManager::instance().clearHistories();
                 BOOST_CHECK(true);
+
+#ifdef QL_PRINT_TEST_SUITE_RUNTIMES
+                auto start = std::chrono::steady_clock::now();
+#endif
+
                 test_();
+
+#ifdef QL_PRINT_TEST_SUITE_RUNTIMES
+                auto stop = std::chrono::steady_clock::now();                
+                std::cout << "TestTime(s) " << std::chrono::duration_cast<std::chrono::microseconds>(stop - start).count() * 1e-6 << "   TestName=" << name_ << "\n";                
+#endif
             }
             #if BOOST_VERSION <= 105300
             // defined to avoid unused-variable warnings. It doesn't
