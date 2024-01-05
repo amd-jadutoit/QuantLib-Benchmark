@@ -190,6 +190,7 @@ set(QL_BENCHMARK_SOURCES
     batesmodel.cpp                      
     bermudanswaption.cpp                
     cdo.cpp                             
+    cms.cpp          
     cmsspread.cpp                       
     convertiblebonds.cpp                
     creditdefaultswap.cpp               
