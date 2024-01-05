@@ -83,12 +83,17 @@
 
 #include "utilities.hpp"
 
+
+
+
 namespace {
 
     class Benchmark {
       public:
         Benchmark(std::string name, std::function<void(void)> f, double cost)
-        : f_(std::move(f)), name_(std::move(name)), cost_(cost) {}
+        : f_(std::move(f)), name_(std::move(name)), cost_(cost), totalRuntime_(0) {}
+
+        Benchmark(const Benchmark& copy) = default;        
 
         std::function<void(void)> getTestCase() const {
             return f_;
@@ -104,10 +109,53 @@ namespace {
             std::swap(name_, other.name_);
             std::swap(cost_, other.cost_);
         }
+
+         void startMeasurement() const {
+//            QL_REQUIRE(PAPI_hl_region_begin(name_.c_str()) == PAPI_OK,
+//                "could not initialize PAPI");
+        }
+
+        void stopMeasurement() const {
+//            QL_REQUIRE(PAPI_hl_region_end(name_.c_str()) == PAPI_OK,
+//                "could not stop PAPI");
+        }
+
+        // Run the benchmark and return the runtime.
+        // If the benchmark throws an error, print
+        // the message and return -1.0 to signal the caller
+        double runBenchmark() const {                      
+            double time = -1.0;
+            try {
+                auto startTime = std::chrono::steady_clock::now();  
+                startMeasurement();
+                // Prevent no-assertion warning            
+                BOOST_CHECK(true); 
+                // Run benchmark
+                f_();                
+                auto stopTime = std::chrono::steady_clock::now();
+                time = std::chrono::duration_cast<std::chrono::microseconds>(stopTime - startTime).count() * 1e-6;
+            } 
+            catch(const std::exception &e) {
+                std::cerr << "Error: caught exception in benchmark " << getName() << "\n"
+                << "Message: " << e.what() << "\n" << std::endl;                
+            }
+            catch(...) {
+                std::cerr << "Error: caught unknown exception in benchmark " << getName() << std::endl;                
+            }
+            stopMeasurement();            
+            return time;
+        }
+
+        // When a benchmark is run multiple times, the total runtime is accumulated
+        // into the class.  These getters return it.
+        double& getTotalRuntime() { return totalRuntime_; }
+        const double& getTotalRuntime() const { return totalRuntime_; }
+
       private:
         std::function<void(void)> f_;
         std::string name_;
         double cost_; 
+        double totalRuntime_;
     };
 
     std::vector<Benchmark> bm;
@@ -123,7 +171,104 @@ namespace {
     };
    
 
-}
+    // Verbosity level and a logging macro to help debugging
+   int verbose=0;   
+   #define LOG_MESSAGE(...)  if(verbose >= 3) { std::cout << __VA_ARGS__ << std::endl; }
+
+
+    void printGreeting()
+    {
+        const std::string header = "Benchmark Suite QuantLib "  QL_VERSION;        
+        std::cout << std::endl;
+        std::cout << std::string(84,'-') << std::endl;
+        std::cout << header << std::endl;
+        std::cout << std::string(84,'-') << std::endl;        
+    }
+
+    // If a test fails, notify the user and terminate the benchmark
+    void terminateBenchmark()
+    {
+        std::cerr << "Error: Invalid benchmark run.\n"
+                <<  "One or more tests failed, please see the log for details" << std::endl ;
+        // Tear down the master process, which kills all child threads/processes
+        exit(1);
+    }
+
+
+    void printResults(
+        unsigned nSize,                         // the size of the benchmark
+        double masterLifetime,                  // lifetime of the master process
+        std::vector<double> workerLifetimes     // lifetimes of all the worker processes
+        ) 
+    {
+        std::cout     << "Benchmark Size        = " << nSize << std::endl;
+        std::cout     << "System Throughput     = " << (double(nSize) * bm.size() ) / masterLifetime << " tasks/s" << std::endl;
+        std::cout     << "Benchmark Runtime     = " << masterLifetime<< "s" << std::endl;
+        
+        if(verbose >=1 ) 
+        {
+            const size_t nProc = workerLifetimes.size();
+            std::cout << "Num. Worker Processes = " << nProc << std::endl;            
+        
+            // Work out tail effect.  We define "tail effect" as the ratio of the average (geomean) 
+            // tail lifetime, to the lifetime of the master process.  The cutoff for defining 
+            // the "tail" is arbitrary.  A ratio of 1 means no tail effect  (tail lifetime is same
+            // as lifetime of master process), a ratio near 0 means tail finished significantly 
+            // before master process
+            std::sort(workerLifetimes.begin(), workerLifetimes.end());        
+            const double thresh = 0.1;
+            int tail = std::ceil(thresh * nProc);
+            double tailGeomean = 1.0;
+            for(int i=0; i<tail; i++) {
+                tailGeomean *= workerLifetimes[i];
+            }
+            tailGeomean = std::pow(tailGeomean, 1.0/tail);
+            const double tailEffect = tailGeomean / masterLifetime;
+            
+            std::cout << "Tail Effect Ratio     = " << tailEffect << std::endl;
+            std::cout << "                      =  Geomean( Shortest " << tail << " worker lifetimes )" << std::endl;
+            std::cout << "                      --------------------------------------------------------" << std::endl;
+            std::cout << "                                    Lifetime( Master process )" << std::endl;
+            std::cout << std::endl;
+        }
+
+        std::cout << std::string(84,'-') << std::endl;
+
+        if(verbose >= 2) {            
+            std::cout << "                       Total Runtime spent in each test " << std::endl;
+            std::cout << std::string(84,'-') << std::endl;
+
+            // Compute max test name length
+            size_t len = 0;
+            for (const auto & b : bm) { len = std::max(len, b.getName().length() ); }
+
+            for (const auto& b: bm) {
+                std::cout << b.getName()
+                        << std::string(len+2 - b.getName().length(),' ')
+                        << ": " << b.getTotalRuntime()  << "s" << std::endl;
+            }
+            std::cout << std::string(84,'-') << std::endl;
+        }
+        std::cout << std::endl; 
+    }
+    
+
+#ifdef QL_ENABLE_PARALLEL_UNIT_TEST_RUNNER
+    int worker(const char * exe, const std::vector<std::string>& args) {        
+        return boost::process::system(exe, boost::process::args=args);
+    }
+#endif
+
+    struct result_type
+    {
+        unsigned bmId;
+        unsigned threadId;
+        double time;
+    };
+
+
+}  // END anonymous namespace
+
 
 #define QL_BENCHMARK_DECLARE(test_fixture, test_name, num_iters, cost)   \
     namespace QuantLibTests {                                        \
@@ -151,6 +296,7 @@ namespace {
         QL_BENCHMARK_DECLARE(AmericanOptionTests, testFdAmericanGreeks, 1, 0.5);
         QL_BENCHMARK_DECLARE(AmericanOptionTests, testFdValues, 20, 3.0);
         QL_BENCHMARK_DECLARE(AmericanOptionTests, testCallPutParity, 100, 1.0);
+        QL_BENCHMARK_DECLARE(AmericanOptionTests, testQdEngineStandardExample, 100, 0.5);
         QL_BENCHMARK_DECLARE(EuropeanOptionTests, testImpliedVol, 1, 0.5);
         QL_BENCHMARK_DECLARE(EuropeanOptionTests, testMcEngines, 1, 1.0);
         QL_BENCHMARK_DECLARE(EuropeanOptionTests, testLocalVolatility, 3, 2.0);
@@ -172,6 +318,12 @@ namespace {
         QL_BENCHMARK_DECLARE(ConvertibleBondTests, testBond, 100, 2.0);
         QL_BENCHMARK_DECLARE(AndreasenHugeVolatilityInterplTests, testArbitrageFree, 1, 1.0);
         QL_BENCHMARK_DECLARE(AndreasenHugeVolatilityInterplTests, testAndreasenHugeCallPut, 1, 1.0);
+        QL_BENCHMARK_DECLARE(AndreasenHugeVolatilityInterplTests, testAndreasenHugeCall, 1, 1.0);
+        QL_BENCHMARK_DECLARE(AndreasenHugeVolatilityInterplTests, testAndreasenHugePut, 1, 1.0);
+        QL_BENCHMARK_DECLARE(AndreasenHugeVolatilityInterplTests, testFlatVolCalibration, 1, 1.0);
+        QL_BENCHMARK_DECLARE(AndreasenHugeVolatilityInterplTests, testTimeDependentInterestRates, 1, 1.0);
+        QL_BENCHMARK_DECLARE(AndreasenHugeVolatilityInterplTests, testPiecewiseConstantInterpolation, 1, 1.0);
+        QL_BENCHMARK_DECLARE(AndreasenHugeVolatilityInterplTests, testLinearInterpolation, 1, 1.0);
 
         // Interest Rates
         QL_BENCHMARK_DECLARE(ShortRateModelTests, testSwaps, 30, 3.0);
@@ -181,6 +333,8 @@ namespace {
         QL_BENCHMARK_DECLARE(MarketModelSmmTests, testMultiStepCoterminalSwapsAndSwaptions, 1, 9.0);
         QL_BENCHMARK_DECLARE(BermudanSwaptionTests, testCachedG2Values, 1, 2.0);
         QL_BENCHMARK_DECLARE(BermudanSwaptionTests, testCachedValues, 100, 3.0);
+        QL_BENCHMARK_DECLARE(LiborMarketModelTests, testSwaptionPricing, 1, 1.0);
+        QL_BENCHMARK_DECLARE(LiborMarketModelTests, testCalibration, 1, 5.0);
         QL_BENCHMARK_DECLARE(PiecewiseYieldCurveTests, testConvexMonotoneForwardConsistency, 10, 2.0);
         QL_BENCHMARK_DECLARE(PiecewiseYieldCurveTests, testFlatForwardConsistency, 50, 3.0);
         QL_BENCHMARK_DECLARE(PiecewiseYieldCurveTests, testGlobalBootstrap, 20, 2.0);
@@ -198,6 +352,7 @@ namespace {
         QL_BENCHMARK_DECLARE(CmsSpreadTests, testCouponPricing, 1, 1.0);
         QL_BENCHMARK_DECLARE(CmsTests, testCmsSwap, 20, 2.0);
         QL_BENCHMARK_DECLARE(CmsTests, testParity, 30, 2.0);
+        QL_BENCHMARK_DECLARE(InterestRateTests, testConversions, 100, 0.5);
 
         // Credit Derivatives
         //Benchmark("CdoTest::testHW(0)", [](){ CdoTest::testHW(0); }, 4.0),
@@ -207,6 +362,8 @@ namespace {
         QL_BENCHMARK_DECLARE(CreditDefaultSwapTests, testImpliedHazardRate, 1000, 1.0);
         QL_BENCHMARK_DECLARE(CreditDefaultSwapTests, testCachedMarketValue, 1000, 0.5);
         QL_BENCHMARK_DECLARE(CreditDefaultSwapTests, testIsdaEngine, 200, 2.0);
+        QL_BENCHMARK_DECLARE(SquareRootCLVModelTests, testSquareRootCLVMappingFunction, 10, 0.5);
+        QL_BENCHMARK_DECLARE(SquareRootCLVModelTests, testSquareRootCLVVanillaPricing, 10, 0.5);
 
         // Energy
         QL_BENCHMARK_DECLARE(SwingOptionTests, testExtOUJumpSwingOption, 1, 3.0);
@@ -219,99 +376,30 @@ namespace {
         QL_BENCHMARK_DECLARE(RiskStatisticsTests, testResults, 1, 0.5);
         QL_BENCHMARK_DECLARE(LowDiscrepancyTests, testMersenneTwisterDiscrepancy, 1, 0.5);
         QL_BENCHMARK_DECLARE(LinearLeastSquaresRegressionTests, testMultiDimRegression, 20, 2.0);
+        QL_BENCHMARK_DECLARE(StatisticsTests, testIncrementalStatistics, 20, 0.5);
+        QL_BENCHMARK_DECLARE(FunctionsTests, testFactorial, 10, 0.5);
+        QL_BENCHMARK_DECLARE(FunctionsTests, testGammaFunction, 10, 0.5);
+        QL_BENCHMARK_DECLARE(FunctionsTests, testGammaValues, 10, 0.5);
+        QL_BENCHMARK_DECLARE(FunctionsTests, testModifiedBesselFunctions, 10, 0.5);
+        QL_BENCHMARK_DECLARE(FunctionsTests, testWeightedModifiedBesselFunctions, 10, 0.5);
+        QL_BENCHMARK_DECLARE(LowDiscrepancyTests, testHalton, 10, 0.5);
+        QL_BENCHMARK_DECLARE(GaussianQuadraturesTests, testNonCentralChiSquared, 1000, 0.5);
+        QL_BENCHMARK_DECLARE(GaussianQuadraturesTests, testNonCentralChiSquaredSumOfNodes, 1000, 0.5);
+        QL_BENCHMARK_DECLARE(GaussianQuadraturesTests, testMomentBasedGaussianPolynomial, 1000, 0.5);
+        QL_BENCHMARK_DECLARE(RoundingTests, testCeiling, 1000, 0.5);
+        QL_BENCHMARK_DECLARE(RoundingTests, testUp, 1000, 0.5);
+        QL_BENCHMARK_DECLARE(RoundingTests, testFloor, 1000, 0.5);
+        QL_BENCHMARK_DECLARE(RoundingTests, testDown, 1000, 0.5);
+        QL_BENCHMARK_DECLARE(RoundingTests, testClosest, 1000, 0.5);
 
 
-namespace {
-    class TimedBenchmark {
-      public:
-        TimedBenchmark(std::function<void(void)> f, const std::string& name)
-        : f_(std::move(f)), name_(name) {}
+   
 
-        void startMeasurement() const {
-//            QL_REQUIRE(PAPI_hl_region_begin(name_.c_str()) == PAPI_OK,
-//                "could not initialize PAPI");
-        }
 
-        void stopMeasurement() const {
-//            QL_REQUIRE(PAPI_hl_region_end(name_.c_str()) == PAPI_OK,
-//                "could not stop PAPI");
-        }
 
-        double operator()() const {
-            startMeasurement();
-            auto startTime = std::chrono::steady_clock::now();
-            BOOST_CHECK(true); // to prevent no-assertion warning
-            f_();
-            auto stopTime = std::chrono::steady_clock::now();
-            stopMeasurement();
-            return std::chrono::duration_cast<std::chrono::microseconds>(
-                 stopTime - startTime).count() * 1e-6;
-        }
-      private:
-        std::function<void(void)> f_;
-        const std::string name_;
-    };
 
-    void printResults(
-        unsigned nProc, unsigned nSize,
-        std::vector<std::pair<Benchmark, double> >& runTimes) {
-
-        //QL_REQUIRE(runTimes.size() == nProc*nSize*bm.size(), "inconsistent number of results");
-
-        const std::string header = "Benchmark Suite QuantLib "  QL_VERSION;        
-        
-        std::cout << std::endl << std::string(78,'-') << std::endl;
-        std::cout << header << std::endl;
-        std::cout << std::string(78,'-') << std::endl << std::endl;
-
-        std::sort(runTimes.begin(), runTimes.end(),
-            [](const auto& a, const auto& b) {
-                //return a.first.getName() < b.first.getName();
-                return a.second > b.second;
-            }
-        );
-
-        std::vector<std::tuple<Benchmark, int, double> > aggTimes;
-        for (const auto& iter: runTimes) {
-            if (aggTimes.empty()
-                    || std::get<0>(aggTimes.back()).getName()
-                        != iter.first.getName()) {
-                aggTimes.emplace_back(iter.first, 1, iter.second);
-            }
-            else {
-                ++std::get<1>(aggTimes.back());
-                std::get<2>(aggTimes.back()) += iter.second;
-            }
-        }
-        
-        for (const auto& iterT: aggTimes) {
-            const double timeInSeconds = std::get<2>(iterT);
-                //= std::get<0>(iterT).getMflop() / std::get<2>(iterT) * nProc * std::get<1>(iterT);
-
-            std::cout << std::get<0>(iterT).getName()
-                      << std::string(62-std::get<0>(iterT).getName().length(),' ')
-                      << ":" << std::fixed << std::setw(8) 
-                      << timeInSeconds << "s" 
-                      << "\t" << std::get<0>(iterT).getCost() <<
-                      std::endl;
-        }
-        /*
-        std::cout << std::string(78,'-') << std::endl
-                  << "QuantLib Benchmark Index" << std::string(38,' ') << ":"
-                  << std::fixed << std::setw(8) << std::setprecision(1)
-                  << sum/aggTimes.size()
-                  << " mflops" << std::endl;
-                  */
-    }
-#ifdef QL_ENABLE_PARALLEL_UNIT_TEST_RUNNER
-    int worker(const char* exe, const std::vector<std::string>& args) {
-        return boost::process::system(exe, boost::process::args=args);
-    }
-#endif
-}
-
-int main(int argc, char* argv[] ) {
-
+int main(int argc, char* argv[] ) 
+{
     // To alleviate tail effects, we sort the bechmarks so that the most expensive ones are first.
     // These will be the first to be dispatched to the OS scheduler
     std::sort(bm.begin(), bm.end(),
@@ -323,11 +411,14 @@ int main(int argc, char* argv[] ) {
 
     unsigned nProc = 1;
     unsigned nSize = 1;
+    // A threadId is useful for debugging, but has no other purpose
     unsigned threadId = 0;
-    std::vector<std::pair<Benchmark, double> > runTimes;
+    
 
-    auto startTime = std::chrono::steady_clock::now();
+    std::vector<double> workerLifetimes;
 
+
+    ////  Argument handling  //////////////////////////
     for (int i=1; i<argc; ++i) {
         std::string arg = argv[i];
         std::vector<std::string> tok;
@@ -341,6 +432,11 @@ int main(int argc, char* argv[] ) {
         else if (tok[0] == "--threadId") {
             QL_REQUIRE(tok.size() == 2, "Must provide a threadId");
             threadId = boost::numeric_cast<unsigned>(std::stoul(tok[1]));                
+        }
+        else if (tok[0] == "--verbose") {
+            QL_REQUIRE(tok.size() == 2, "Must provide a value for verbose");
+            verbose = boost::numeric_cast<unsigned>(std::stoul(tok[1]));
+            QL_REQUIRE(verbose>=0 && verbose <= 3, "Value for verbose must be 0, 1, 2 or 3");
         }
         else if (tok[0] == "--size") {
             QL_REQUIRE(tok.size() == 2,
@@ -371,7 +467,9 @@ int main(int argc, char* argv[] ) {
                 << "--nProc[=PROCESSES] \t parallel execution with PROCESSES processes"
                 << std::endl
 #endif
-                << "--size=S|M|L|XL \t size of the benchmark"
+                << "--size=<num> \t how many times each internal tasks is run"
+                << std::endl
+                << "--verbose=<0|1|2|3> \t controls verbosity of output"
                 << std::endl
                 << "-?, --help \t\t display this help and exit"
                 << std::endl;
@@ -389,34 +487,42 @@ int main(int argc, char* argv[] ) {
         }
     }
 
+
+    ////////  Finished argument processing, start benchmark code   //////////////////////////////////////////////
+
     if (nProc == 1 && !clientMode) {        
-        for (unsigned i=0; i < nSize; ++i)
-            std::for_each(bm.begin(), bm.end(),
-                [&runTimes](const Benchmark& iter) {
-                    runTimes.emplace_back(
-                        iter, TimedBenchmark(iter.getTestCase(), iter.getName())());
-            });
+        // Sequential benchmark, useful for debugging
+        auto startTime = std::chrono::steady_clock::now();
+        printGreeting();
+        for (unsigned i=0; i < nSize; ++i) {
+            for(unsigned int j=0; j<bm.size(); j++) {
+                double time = bm[j].runBenchmark();
+                if(time < 0) {
+                    terminateBenchmark();
+                }
+                bm[j].getTotalRuntime() += time;
+                LOG_MESSAGE("MASTER  :  completed benchmarkId=" << j << ", time=" << time);              
+            }
+        }
         auto stopTime = std::chrono::steady_clock::now();            
         double masterLifetime = std::chrono::duration_cast<std::chrono::microseconds>(stopTime - startTime).count() * 1e-6;
-        std::cout << "Overall runtime=" << masterLifetime << "s with nProc=" << nProc << " and nSize=" << nSize << "\n\n";
-        printResults(nProc, nSize, runTimes);
+        workerLifetimes.push_back(masterLifetime);        
+        printResults(nSize, masterLifetime, workerLifetimes);
     }
     else {
+
 #if defined(QL_ENABLE_PARALLEL_UNIT_TEST_RUNNER) || 1
+
         using namespace boost::interprocess;
-
-        typedef std::pair<unsigned, double> result_type;
-
+       
         message_queue::size_type recvd_size;
-        unsigned priority, terminateId=-1;
-
+        unsigned int priority=0;
+        const unsigned int terminateId=-1;
         const char* const testUnitIdQueueName = "test_unit_queue";
         const char* const testResultQueueName = "test_result_queue";
 
         if (!clientMode) {     
-            std::cout << "Hi, I'm the master thread!" << std::endl;            
-
-
+            // Boost IPC message queue setup
             message_queue::remove(testUnitIdQueueName);
             message_queue::remove(testResultQueueName);
             struct queue_remove {
@@ -432,97 +538,121 @@ int main(int argc, char* argv[] ) {
                 nSize*bm.size(), sizeof(unsigned)
             );
             message_queue rq(                
-                open_or_create, testResultQueueName, 
-                // TODO: why this 16u?  I know what I have below is overkill ...
-                std::max(16u, nProc), 
-                //nSize * bm.size(),
+                open_or_create, testResultQueueName,                 
+                std::max(16u, nProc),                 
                 sizeof(result_type)
                 );
 
-            std::vector<std::string> workerArgs(2, clientModeStr);
+
+            printGreeting();
+
+            // Start timer for the benchmark
+            auto startTime = std::chrono::steady_clock::now();
+
+            // Create the thread group and start each worker process, giving it a unique threadId (useful for debugging)
             std::vector<std::thread> threadGroup;            
-            std::string thread = "--threadId=";
-            int tid = 0;
-            for (unsigned i = 0; i < nProc; ++i) {
-                workerArgs[1] = thread + std::to_string(++tid);           
-                threadGroup.emplace_back([&,workerArgs]() { worker(argv[0], workerArgs); });
+            {
+                std::string thread("--threadId="), cpubind("--physcpubind="), verb("--verbose=");
+                verb += std::to_string(verbose);
+    #define NUMA 0
+                #if NUMA
+                std::vector<std::string> workerArgs = {cpubind, argv[0], clientModeStr, thread, verb};            
+                #else
+                std::vector<std::string> workerArgs = {clientModeStr, thread, verb};            
+                #endif
+                for (unsigned i = 0; i < nProc; ++i) {
+                    LOG_MESSAGE("MASTER    : creating worker threadId=" << i+1);         
+                    #if NUMA
+                    workerArgs[0] = cpubind + std::to_string(i);  
+                    workerArgs[3] = thread + std::to_string(i+1);                                  
+                    threadGroup.emplace_back([&,workerArgs]() { worker("/usr/bin/numactl" , workerArgs); });
+                    #else
+                    workerArgs[1] = thread + std::to_string(i+1);                                  
+                    threadGroup.emplace_back([&,workerArgs]() { worker(argv[0], workerArgs); });                
+                    #endif
+                }
             }
 
-            
-            
+            result_type r;
+            // Fire off all the benchmarks
             for (unsigned j=0; j < bm.size(); ++j) {
                 // Enqueue nSize copies of each task to even out load balance
                 for (unsigned i=0; i < nSize; ++i) {
-                    // Will be non-blocking send since send buffer is big enough                    
+                    // Will be non-blocking send since send buffer is big enough 
+                    LOG_MESSAGE("MASTER    : sending benchmarkId=" << j);                   
                     mq.send(&j, sizeof(unsigned), 0);
                 }
             }
-            
-            result_type r;
-            //for (unsigned i = 0; i < nProc*nSize*bm.size(); ++i) {
+            // Receive all results from workers
             for (unsigned i=0; i < nSize*bm.size(); ++i) {                
-                rq.receive(&r, sizeof(result_type), recvd_size, priority);                                
-                //std::cout << "\t\tMASTER RECEIVED id=" << r.first << std::endl;
-                runTimes.push_back(std::make_pair(bm[r.first], r.second));                                
+                rq.receive(&r, sizeof(result_type), recvd_size, priority);
+                LOG_MESSAGE("MASTER     : received result : threadId=" << r.threadId << ", benchmarkId=" << r.bmId << ", time=" << r.time << " : " << nSize*bm.size()-1-i << " results pending");    
+                if(r.time < 0) {
+                    terminateBenchmark();
+                }               
+                bm[r.bmId].getTotalRuntime() += r.time;                             
             }
 
-            // All results have been received.  Post the terminate signal to all processes
-            // and receive worker lifetimes
-            std::vector<double> workerLifetimes;
+
+            // Send terminate signal to all workers
             for (unsigned i=0; i < nProc; ++i) {
-                //std::cout << "\t\tMASTER sending TERMINATE" << std::endl;
+                LOG_MESSAGE("MASTER    : sending TERMINATE signal");                   
                 mq.send(&terminateId, sizeof(unsigned), 0);
             }
-            //std::cout << "\t\tMASTER going to try receive TERMINATEs" << std::endl;
+            // Receive worker lifetimes
             for (unsigned i=0; i < nProc; ++i) {                
-                rq.receive(&r, sizeof(result_type), recvd_size, priority);                                
-                //std::cout << "\t\tMASTER RECEIVED TERMINATE from thread=" << r.first << std::endl;
-                workerLifetimes.push_back(r.second);
+                rq.receive(&r, sizeof(result_type), recvd_size, priority);
+                LOG_MESSAGE("MASTER    : received worker lifetime : threadId=" << r.threadId << ", time=" << r.time << " : " << nProc-1-i << " lifetimes pending");
+                workerLifetimes.push_back(r.time);
             }
-                   
+
+
+            // Synchronize with and exit all threads
             for (auto& thread: threadGroup) {
                 thread.join();
             }
+
             auto stopTime = std::chrono::steady_clock::now();            
             double masterLifetime = std::chrono::duration_cast<std::chrono::microseconds>(stopTime - startTime).count() * 1e-6;
-            double shortestLifetime = *std::min_element(workerLifetimes.begin(), workerLifetimes.end());
-            double loadBalance = shortestLifetime / masterLifetime;
-            std::cout << "Overall runtime=" << masterLifetime<< "s , load balance=" << loadBalance << " with nProc=" << nProc << " and nSize=" << nSize << "\n\n";
-            printResults(nProc, nSize, runTimes);
+            printResults(nSize, masterLifetime, workerLifetimes);
+
+
         }
         else {
-            //std::cout << "Hello from worker thread " << threadId << std::endl;
+            // We are a worker process - open Boost IPC queues
             message_queue mq(open_only, testUnitIdQueueName);
             message_queue rq(open_only, testResultQueueName);
-            auto stopTime = std::chrono::steady_clock::now();
+
+            // Record start of this process's lifetime.  We keep tack of lifetimes
+            // in order to monitor tail effects
+            auto startTime = std::chrono::steady_clock::now();
+            // If this worker has nothing to do, we still want a non-zero lifetime
+            auto stopTime = std::chrono::steady_clock::now();;
+
             for(;;) {
                 unsigned id=0;
-                mq.receive(&id, sizeof(unsigned), recvd_size, priority);
-                //std::cout << "Worker " << threadId << " RECEIVED id=" << id << std::endl;
-
+                mq.receive(&id, sizeof(unsigned), recvd_size, priority);                
+                
                 if(id == terminateId) {
-                    // Worker process being told to terminate.
-                    // Tell the master process what our lifetime was.
-                    // Lifetime is how long it took until we completed our 
-                    // final task                    
-                    //std::cout << "Worker " << threadId << " TERMINATING" << std::endl;
+                    // Worker process being told to terminate.  Report our lifetime.  
+                    // Lifetime is how long it took until we completed our final task                    
                     double workerLifetime = std::chrono::duration_cast<std::chrono::microseconds>(stopTime - startTime).count() * 1e-6;
-                    result_type a(threadId, workerLifetime);
-                    rq.send(&a, sizeof(result_type), 0);
+                    result_type r {terminateId, threadId, workerLifetime};
+                    LOG_MESSAGE("WORKER-" << std::setw(3) << threadId << ": received TERMINATE signal, sending lifetime=" << r.time);
+                    rq.send(&r, sizeof(result_type), 0);
                     break;
                 }
                 else {
-                    //std::cout << "Worker " << threadId << " is doing id=" << id << std::endl;
-                    result_type a(id, TimedBenchmark(bm.at(id).getTestCase(), bm[id].getName())());
-                    //std::cout << "Worker " << threadId << " FINISHED id=" << id << std::endl;
+                    LOG_MESSAGE("WORKER-" << std::setw(3) << threadId << ": received benchmarkId=" << id << ", starting execution ...");                    
+                    result_type r {id, threadId, bm[id].runBenchmark()};
                     // We record the timestamp after each task is complete
                     // We use this to define worker lifetime
                     stopTime = std::chrono::steady_clock::now();
-                    rq.send(&a, sizeof(result_type), 0);
-                    //std::cout << "Worker " << threadId << " SENT RESULTS for id=" << id << std::endl;
+                    LOG_MESSAGE("WORKER-" << std::setw(3) << threadId << ": sending result benchmarkId=" << id << ", time=" << r.time);
+                    rq.send(&r, sizeof(result_type), 0);
                 }                              
             }
-            //std::cout << "BYE from worker thread " << threadId << std::endl;
+            LOG_MESSAGE("WORKER-" << std::setw(3) << threadId << ": exiting");
         }
 #else
         std::cout << "Please compile QuantLib with option 'QL_ENABLE_PARALLEL_UNIT_TEST_RUNNER'"
