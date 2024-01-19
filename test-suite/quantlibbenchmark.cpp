@@ -158,6 +158,7 @@ namespace {
         double totalRuntime_;
     };
 
+    // Our container for all the benchmarks we'll run
     std::vector<Benchmark> bm;
 
     // A helper class to push benchmark objects into bm before main() starts
@@ -174,6 +175,45 @@ namespace {
     // Verbosity level and a logging macro to help debugging
    int verbose=0;   
    #define LOG_MESSAGE(...)  if(verbose >= 3) { std::cout << __VA_ARGS__ << std::endl; }
+
+
+   static const std::vector< std::pair<std::string, unsigned int> > bmSizes = {
+        {"XXS",  50},
+        {"XS",   100},
+        {"S",    200},
+        {"M",    400},
+        {"L",    800}
+   };
+
+   unsigned int parseBmSize(const std::string &size)
+   {
+       for(const auto & p : bmSizes) {
+           if(p.first == size)
+               return p.second;
+       }
+       // OK - it's not a preset size, let's see if it's parsable as an integer
+        try {
+            unsigned int sz = std::stoul(size);
+            return sz;
+        } 
+        catch(const std::exception &e) {
+            // Unable to convert to integer.  Abort
+            std::cerr << "Error: invalid benchmark run\n";
+            std::cerr << "Invalid custom benchmark size specified, unable to convert to an integer\n";
+            exit(1);
+        }
+   }
+
+   std::string bmSizeAsString(unsigned int size)
+   {
+       for(const auto& p : bmSizes) {
+           if(p.second == size)
+               return p.first;
+       }
+       // Not a preset size
+       return "Custom (" + std::to_string(size) + ")";
+   }
+
 
 
     void printGreeting()
@@ -201,7 +241,7 @@ namespace {
         std::vector<double> workerLifetimes     // lifetimes of all the worker processes
         ) 
     {
-        std::cout     << "Benchmark Size        = " << nSize << std::endl;
+        std::cout     << "Benchmark Size        = " << bmSizeAsString(nSize) << std::endl;
         std::cout     << "System Throughput     = " << (double(nSize) * bm.size() ) / masterLifetime << " tasks/s" << std::endl;
         std::cout     << "Benchmark Runtime     = " << masterLifetime<< "s" << std::endl;
         
@@ -296,7 +336,7 @@ namespace {
         QL_BENCHMARK_DECLARE(AmericanOptionTests, testFdAmericanGreeks, 1, 0.5);
         QL_BENCHMARK_DECLARE(AmericanOptionTests, testFdValues, 20, 3.0);
         QL_BENCHMARK_DECLARE(AmericanOptionTests, testCallPutParity, 100, 1.0);
-        QL_BENCHMARK_DECLARE(AmericanOptionTests, testQdEngineStandardExample, 100, 0.5);
+        QL_BENCHMARK_DECLARE(AmericanOptionTests, testQdEngineStandardExample, 400, 0.5);
         QL_BENCHMARK_DECLARE(EuropeanOptionTests, testImpliedVol, 1, 0.5);
         QL_BENCHMARK_DECLARE(EuropeanOptionTests, testMcEngines, 1, 1.0);
         QL_BENCHMARK_DECLARE(EuropeanOptionTests, testLocalVolatility, 3, 2.0);
@@ -314,7 +354,7 @@ namespace {
         QL_BENCHMARK_DECLARE(HestonSLVModelTests, testHestonFokkerPlanckFwdEquation, 1, 5.0);
         QL_BENCHMARK_DECLARE(HestonSLVModelTests, testBarrierPricingViaHestonLocalVol, 1, 1.0);
         QL_BENCHMARK_DECLARE(MCLongstaffSchwartzEngineTests, testAmericanOption, 1, 2.0);
-        QL_BENCHMARK_DECLARE(VarianceGammaTests, testVarianceGamma, 1, 0.5);
+        QL_BENCHMARK_DECLARE(VarianceGammaTests, testVarianceGamma, 1, 0.1);
         QL_BENCHMARK_DECLARE(ConvertibleBondTests, testBond, 100, 2.0);
         QL_BENCHMARK_DECLARE(AndreasenHugeVolatilityInterplTests, testArbitrageFree, 1, 1.0);
         QL_BENCHMARK_DECLARE(AndreasenHugeVolatilityInterplTests, testAndreasenHugeCallPut, 1, 1.0);
@@ -352,7 +392,7 @@ namespace {
         QL_BENCHMARK_DECLARE(CmsSpreadTests, testCouponPricing, 1, 1.0);
         QL_BENCHMARK_DECLARE(CmsTests, testCmsSwap, 20, 2.0);
         QL_BENCHMARK_DECLARE(CmsTests, testParity, 30, 2.0);
-        QL_BENCHMARK_DECLARE(InterestRateTests, testConversions, 100, 0.5);
+        QL_BENCHMARK_DECLARE(InterestRateTests, testConversions, 10000, 0.1);
 
         // Credit Derivatives
         //Benchmark("CdoTest::testHW(0)", [](){ CdoTest::testHW(0); }, 4.0),
@@ -360,10 +400,10 @@ namespace {
         //Benchmark("CdoTest::testHW(4)", [](){ CdoTest::testHW(4); }, 16.0),
         //Benchmark("CdoTest::testHW(3)", [](){ CdoTest::testHW(3); }, 19.0),
         QL_BENCHMARK_DECLARE(CreditDefaultSwapTests, testImpliedHazardRate, 1000, 1.0);
-        QL_BENCHMARK_DECLARE(CreditDefaultSwapTests, testCachedMarketValue, 1000, 0.5);
+        QL_BENCHMARK_DECLARE(CreditDefaultSwapTests, testCachedMarketValue, 1000, 0.1);
         QL_BENCHMARK_DECLARE(CreditDefaultSwapTests, testIsdaEngine, 200, 2.0);
-        QL_BENCHMARK_DECLARE(SquareRootCLVModelTests, testSquareRootCLVMappingFunction, 10, 0.5);
-        QL_BENCHMARK_DECLARE(SquareRootCLVModelTests, testSquareRootCLVVanillaPricing, 10, 0.5);
+        QL_BENCHMARK_DECLARE(SquareRootCLVModelTests, testSquareRootCLVMappingFunction, 20, 0.5);
+        QL_BENCHMARK_DECLARE(SquareRootCLVModelTests, testSquareRootCLVVanillaPricing, 200, 0.5);
 
         // Energy
         QL_BENCHMARK_DECLARE(SwingOptionTests, testExtOUJumpSwingOption, 1, 3.0);
@@ -373,24 +413,24 @@ namespace {
         QL_BENCHMARK_DECLARE(VppTests, testKlugeExtOUSpreadOption, 1, 1.0);
 
        // Math
-        QL_BENCHMARK_DECLARE(RiskStatisticsTests, testResults, 1, 0.5);
-        QL_BENCHMARK_DECLARE(LowDiscrepancyTests, testMersenneTwisterDiscrepancy, 1, 0.5);
+        QL_BENCHMARK_DECLARE(RiskStatisticsTests, testResults, 4, 0.5);
+        QL_BENCHMARK_DECLARE(LowDiscrepancyTests, testMersenneTwisterDiscrepancy, 2, 0.5);
         QL_BENCHMARK_DECLARE(LinearLeastSquaresRegressionTests, testMultiDimRegression, 20, 2.0);
         QL_BENCHMARK_DECLARE(StatisticsTests, testIncrementalStatistics, 20, 0.5);
-        QL_BENCHMARK_DECLARE(FunctionsTests, testFactorial, 10, 0.5);
-        QL_BENCHMARK_DECLARE(FunctionsTests, testGammaFunction, 10, 0.5);
-        QL_BENCHMARK_DECLARE(FunctionsTests, testGammaValues, 10, 0.5);
-        QL_BENCHMARK_DECLARE(FunctionsTests, testModifiedBesselFunctions, 10, 0.5);
-        QL_BENCHMARK_DECLARE(FunctionsTests, testWeightedModifiedBesselFunctions, 10, 0.5);
-        QL_BENCHMARK_DECLARE(LowDiscrepancyTests, testHalton, 10, 0.5);
-        QL_BENCHMARK_DECLARE(GaussianQuadraturesTests, testNonCentralChiSquared, 1000, 0.5);
-        QL_BENCHMARK_DECLARE(GaussianQuadraturesTests, testNonCentralChiSquaredSumOfNodes, 1000, 0.5);
-        QL_BENCHMARK_DECLARE(GaussianQuadraturesTests, testMomentBasedGaussianPolynomial, 1000, 0.5);
-        QL_BENCHMARK_DECLARE(RoundingTests, testCeiling, 1000, 0.5);
-        QL_BENCHMARK_DECLARE(RoundingTests, testUp, 1000, 0.5);
-        QL_BENCHMARK_DECLARE(RoundingTests, testFloor, 1000, 0.5);
-        QL_BENCHMARK_DECLARE(RoundingTests, testDown, 1000, 0.5);
-        QL_BENCHMARK_DECLARE(RoundingTests, testClosest, 1000, 0.5);
+        QL_BENCHMARK_DECLARE(FunctionsTests, testFactorial, 1000, 0.1);
+        QL_BENCHMARK_DECLARE(FunctionsTests, testGammaFunction, 1000, 0.5);
+        QL_BENCHMARK_DECLARE(FunctionsTests, testGammaValues, 100000, 0.5);
+        QL_BENCHMARK_DECLARE(FunctionsTests, testModifiedBesselFunctions, 10000, 0.5);
+        QL_BENCHMARK_DECLARE(FunctionsTests, testWeightedModifiedBesselFunctions, 20, 0.5);
+        QL_BENCHMARK_DECLARE(LowDiscrepancyTests, testHalton, 80, 1.0);
+        QL_BENCHMARK_DECLARE(GaussianQuadraturesTests, testNonCentralChiSquared, 4000, 0.5);
+        QL_BENCHMARK_DECLARE(GaussianQuadraturesTests, testNonCentralChiSquaredSumOfNodes, 8000, 0.5);
+        QL_BENCHMARK_DECLARE(GaussianQuadraturesTests, testMomentBasedGaussianPolynomial, 100000, 0.5);
+        QL_BENCHMARK_DECLARE(RoundingTests, testCeiling, 100000, 0.1);
+        QL_BENCHMARK_DECLARE(RoundingTests, testUp, 100000, 0.1);
+        QL_BENCHMARK_DECLARE(RoundingTests, testFloor, 100000, 0.1);
+        QL_BENCHMARK_DECLARE(RoundingTests, testDown, 100000, 0.1);
+        QL_BENCHMARK_DECLARE(RoundingTests, testClosest, 100000, 0.1);
 
 
    
@@ -410,12 +450,11 @@ int main(int argc, char* argv[] )
     bool clientMode = false;
 
     unsigned nProc = 1;
-    unsigned nSize = 1;
+    std::string size = "S";
     // A threadId is useful for debugging, but has no other purpose
     unsigned threadId = 0;
     
 
-    std::vector<double> workerLifetimes;
 
 
     ////  Argument handling  //////////////////////////
@@ -440,20 +479,8 @@ int main(int argc, char* argv[] )
         }
         else if (tok[0] == "--size") {
             QL_REQUIRE(tok.size() == 2,
-                "benchmark size is not given. Should be one out of S, M, L or XL, default is S");
-            nSize = boost::numeric_cast<unsigned>(std::stoul(tok[1]));
-            /*
-            if (tok[1] == "S")
-                nSize = 1;
-            else if (tok[1] == "M")
-                nSize = 3;
-            else if (tok[1] == "L")
-                nSize = 5;
-            else if (tok[1] == "XL")
-                nSize = 20;
-            else
-                QL_FAIL("unknown benchmark size, Should be one out of S, M, L or XL");
-                */
+                "benchmark size is not given");
+            size = tok[1];
         }
         else if (arg == "--help" || arg == "-?") {
             std::cout
@@ -467,8 +494,12 @@ int main(int argc, char* argv[] )
                 << "--nProc[=PROCESSES] \t parallel execution with PROCESSES processes"
                 << std::endl
 #endif
-                << "--size=<num> \t how many times each internal tasks is run"
-                << std::endl
+                << "--size=<";
+                for(const auto &p : bmSizes) {
+                    std::cout << p.first;
+                    if(p.first != bmSizes.back().first) std::cout << "|";
+                }
+                std::cout << "> \t the size of the benchmark (how many times each task is run).  Default size is " << size << std::endl
                 << "--verbose=<0|1|2|3> \t controls verbosity of output"
                 << std::endl
                 << "-?, --help \t\t display this help and exit"
@@ -487,6 +518,8 @@ int main(int argc, char* argv[] )
         }
     }
 
+    const unsigned int nSize = parseBmSize(size);
+    std::vector<double> workerLifetimes;
 
     ////////  Finished argument processing, start benchmark code   //////////////////////////////////////////////
 
@@ -511,7 +544,7 @@ int main(int argc, char* argv[] )
     }
     else {
 
-#if defined(QL_ENABLE_PARALLEL_UNIT_TEST_RUNNER) || 1
+#if defined(QL_ENABLE_PARALLEL_UNIT_TEST_RUNNER)
 
         using namespace boost::interprocess;
        
@@ -522,6 +555,9 @@ int main(int argc, char* argv[] )
         const char* const testResultQueueName = "test_result_queue";
 
         if (!clientMode) {     
+            try {
+
+            std::cout << "master sees nProc=" << nProc << std::endl;
             // Boost IPC message queue setup
             message_queue::remove(testUnitIdQueueName);
             message_queue::remove(testResultQueueName);
@@ -552,24 +588,13 @@ int main(int argc, char* argv[] )
             // Create the thread group and start each worker process, giving it a unique threadId (useful for debugging)
             std::vector<std::thread> threadGroup;            
             {
-                std::string thread("--threadId="), cpubind("--physcpubind="), verb("--verbose=");
+                std::string thread("--threadId="), verb("--verbose=");
                 verb += std::to_string(verbose);
-    #define NUMA 0
-                #if NUMA
-                std::vector<std::string> workerArgs = {cpubind, argv[0], clientModeStr, thread, verb};            
-                #else
                 std::vector<std::string> workerArgs = {clientModeStr, thread, verb};            
-                #endif
                 for (unsigned i = 0; i < nProc; ++i) {
                     LOG_MESSAGE("MASTER    : creating worker threadId=" << i+1);         
-                    #if NUMA
-                    workerArgs[0] = cpubind + std::to_string(i);  
-                    workerArgs[3] = thread + std::to_string(i+1);                                  
-                    threadGroup.emplace_back([&,workerArgs]() { worker("/usr/bin/numactl" , workerArgs); });
-                    #else
                     workerArgs[1] = thread + std::to_string(i+1);                                  
                     threadGroup.emplace_back([&,workerArgs]() { worker(argv[0], workerArgs); });                
-                    #endif
                 }
             }
 
@@ -616,6 +641,9 @@ int main(int argc, char* argv[] )
             double masterLifetime = std::chrono::duration_cast<std::chrono::microseconds>(stopTime - startTime).count() * 1e-6;
             printResults(nSize, masterLifetime, workerLifetimes);
 
+        } catch(const std::exception &e) {
+            std::cerr << "MASTER process caught an exception:\n" << e.what() << std::endl;
+        }
 
         }
         else {
