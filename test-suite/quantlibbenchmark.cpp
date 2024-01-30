@@ -449,8 +449,16 @@ int main(int argc, char* argv[] )
     const std::string clientModeStr = "--client_mode=true";
     bool clientMode = false;
 
+    // Default number of worker processes to use
+#if defined(QL_ENABLE_PARALLEL_UNIT_TEST_RUNNER)
+    unsigned nProc = std::thread::hardware_concurrency();
+#else
     unsigned nProc = 1;
+#endif
+
+    // Default benchmark size to use
     std::string size = "S";
+
     // A threadId is useful for debugging, but has no other purpose
     unsigned threadId = 0;
     
@@ -464,17 +472,31 @@ int main(int argc, char* argv[] )
         boost::split(tok, arg, boost::is_any_of("="));
 
         if (tok[0] == "--nProc") {
-            nProc = (tok.size() == 2)
-                ? boost::numeric_cast<unsigned>(std::stoul(tok[1]))
-                : std::thread::hardware_concurrency();
+            QL_REQUIRE(tok.size() == 2, "Must provide a number of worker processes");
+            try {
+                nProc = boost::numeric_cast<unsigned>(std::stoul(tok[1]));
+            } catch(const std::exception &e) {
+                std::cerr << "Invalid argument to 'nProc', not a positive integer" << std::endl;
+                exit(1);
+            }
         }
         else if (tok[0] == "--threadId") {
             QL_REQUIRE(tok.size() == 2, "Must provide a threadId");
-            threadId = boost::numeric_cast<unsigned>(std::stoul(tok[1]));                
+            try {
+                threadId = boost::numeric_cast<unsigned>(std::stoul(tok[1]));                
+            } catch(const std::exception &e) {
+                std::cerr << "Invalid argument to 'threadId', not a positive integer. This is an internal error, please contact the developers" << std::endl;
+                exit(1);
+            }
         }
         else if (tok[0] == "--verbose") {
             QL_REQUIRE(tok.size() == 2, "Must provide a value for verbose");
-            verbose = boost::numeric_cast<unsigned>(std::stoul(tok[1]));
+            try {
+                verbose = boost::numeric_cast<unsigned>(std::stoul(tok[1]));
+            } catch(const std::exception &e) {
+                std::cerr << "Invalid argument to 'verbose', not a positive integer" << std::endl;
+                exit(1);
+            }
             QL_REQUIRE(verbose>=0 && verbose <= 3, "Value for verbose must be 0, 1, 2 or 3");
         }
         else if (tok[0] == "--size") {
@@ -485,24 +507,26 @@ int main(int argc, char* argv[] )
         else if (arg == "--help" || arg == "-?") {
             std::cout
                 << "'quantlib-benchmark' is QuantLib " QL_VERSION " CPU performance benchmark"
-                << std::endl << std::endl
-                << "Usage: ./quantlib-benchmark [OPTION]..."
-                << std::endl << std::endl
+                << "\n\n"
+                << "Usage: ./quantlib-benchmark [OPTION] ..."
+                << "\n\n"
                 << "with the following options:"
-                << std::endl
+                << "\n"
 #ifdef QL_ENABLE_PARALLEL_UNIT_TEST_RUNNER
-                << "--nProc[=PROCESSES] \t parallel execution with PROCESSES processes"
-                << std::endl
+                << "--nProc[=PROCESSES] \t parallel execution with PROCESSES processes.\n"
+                << "                    \t Default value is nProc=" << nProc << "\n";
+                << "\n"
 #endif
                 << "--size=<";
                 for(const auto &p : bmSizes) {
-                    std::cout << p.first;
-                    if(p.first != bmSizes.back().first) std::cout << "|";
+                    std::cout << p.first << "|";
                 }
-                std::cout << "> \t the size of the benchmark (how many times each task is run).  Default size is " << size << std::endl
-                << "--verbose=<0|1|2|3> \t controls verbosity of output"
-                << std::endl
-                << "-?, --help \t\t display this help and exit"
+                std::cout  << "NN> \t the size of the benchmark (how many times each task is run), where 'NN' can be\n"
+                << "    \t\t any positive integer.  Default vaue is size=" << size << "\n"
+                << "\n"
+                << "--verbose=<0|1|2|3> \t controls verbosity of output\n"
+                << "\n"
+                << "-?, --help    \t\t display this help and exit"
                 << std::endl;
             return 0;
         }
